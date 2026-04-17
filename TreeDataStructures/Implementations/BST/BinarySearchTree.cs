@@ -11,12 +11,10 @@ public class BinarySearchTree<TKey, TValue> : BinarySearchTreeBase<TKey, TValue,
     
     protected override void OnNodeAdded(BstNode<TKey, TValue> newNode)
     {
-        // ку ку
     }
     
     protected override void OnNodeRemoved(BstNode<TKey, TValue>? parent, BstNode<TKey, TValue>? child)
     {
-        // не ку ку
     }
     
 }

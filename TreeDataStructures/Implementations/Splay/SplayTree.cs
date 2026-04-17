@@ -56,14 +56,77 @@ public class SplayTree<TKey, TValue> : BinarySearchTree<TKey, TValue>
     
     protected override void OnNodeRemoved(BstNode<TKey, TValue>? parent, BstNode<TKey, TValue>? child)
     {
-        if (parent != null)
+    }
+
+    public override bool Remove(TKey key)
+    {
+        BstNode<TKey, TValue>? current = Root;
+        BstNode<TKey, TValue>? last = null;
+
+        while (current != null)
         {
-            Splay(parent);
+            last = current;
+            int cmp = Comparer.Compare(key, current.Key);
+            if (cmp == 0)
+            {
+                break;
+            }
+
+            current = cmp < 0 ? current.Left : current.Right;
         }
-        else if (child != null)
+
+        if (current == null)
         {
-            Splay(child);
+            if (last != null)
+            {
+                Splay(last);
+            }
+
+            return false;
         }
+
+        Splay(current);
+
+        BstNode<TKey, TValue>? leftSubtree = Root!.Left;
+        BstNode<TKey, TValue>? rightSubtree = Root.Right;
+
+        if (leftSubtree != null)
+        {
+            leftSubtree.Parent = null;
+        }
+
+        if (rightSubtree != null)
+        {
+            rightSubtree.Parent = null;
+        }
+
+        Root.Left = null;
+        Root.Right = null;
+
+        if (leftSubtree == null)
+        {
+            Root = rightSubtree;
+        }
+        else
+        {
+            Root = leftSubtree;
+
+            BstNode<TKey, TValue> maxLeft = leftSubtree;
+            while (maxLeft.Right != null)
+            {
+                maxLeft = maxLeft.Right;
+            }
+
+            Splay(maxLeft);
+            Root!.Right = rightSubtree;
+            if (rightSubtree != null)
+            {
+                rightSubtree.Parent = Root;
+            }
+        }
+
+        Count--;
+        return true;
     }
 
     public override bool ContainsKey(TKey key)

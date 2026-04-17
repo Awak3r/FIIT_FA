@@ -1,6 +1,5 @@
 ﻿using System.Collections;
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
 using TreeDataStructures.Interfaces;
 
 namespace TreeDataStructures.Core;
@@ -273,47 +272,12 @@ public abstract class BinarySearchTreeBase<TKey, TValue, TNode>(IComparer<TKey>?
     }
     #endregion
 
-    public IEnumerable<TreeEntry<TKey, TValue>> InOrder() => InOrderTraversal(Root, 0);
-
-    private IEnumerable<TreeEntry<TKey, TValue>> InOrderTraversal(TNode? node, int depth)
-    {
-        if (node == null) { yield break; }
-        foreach(var entry in InOrderTraversal(node.Left, depth + 1)) {yield return entry; }
-        yield return new TreeEntry<TKey, TValue>(node.Key, node.Value, depth);
-        foreach(var entry in InOrderTraversal(node.Right, depth + 1)) {yield return entry; }
-    }
-
-    public IEnumerable<TreeEntry<TKey, TValue>> PreOrder() => PreOrderTraversal(Root, 0);
-
-    private IEnumerable<TreeEntry<TKey, TValue>> PreOrderTraversal(TNode? node, int depth)
-    {
-        if (node == null) { yield break; }
-        yield return new TreeEntry<TKey, TValue>(node.Key, node.Value, depth);
-        foreach (var entry in PreOrderTraversal(node.Left, depth + 1)) { yield return entry; }
-        foreach (var entry in PreOrderTraversal(node.Right, depth + 1)) { yield return entry; }
-    }
-    public IEnumerable<TreeEntry<TKey, TValue>> PostOrder() => PostOrderTraversal(Root, 0);
-
-    private IEnumerable<TreeEntry<TKey, TValue>> PostOrderTraversal(TNode? node, int depth)
-    {
-        if (node == null) { yield break; }
-        foreach (var entry in PostOrderTraversal(node.Left, depth + 1)) { yield return entry; }
-        foreach (var entry in PostOrderTraversal(node.Right, depth + 1)) { yield return entry; }
-        yield return new TreeEntry<TKey, TValue>(node.Key, node.Value, depth);
-    }
-
-    public IEnumerable<TreeEntry<TKey, TValue>> InOrderReverse() => InOrderReverseTraversal(Root, 0);
-
-    private IEnumerable<TreeEntry<TKey, TValue>> InOrderReverseTraversal(TNode? node, int depth)
-    {
-        if (node == null) { yield break; }
-        foreach (var entry in InOrderReverseTraversal(node.Right, depth + 1)) { yield return entry; }
-        yield return new TreeEntry<TKey, TValue>(node.Key, node.Value, depth);
-        foreach (var entry in InOrderReverseTraversal(node.Left, depth + 1)) { yield return entry; }
-    }
-
-    public IEnumerable<TreeEntry<TKey, TValue>> PreOrderReverse() => PreOrder().Reverse();
-    public IEnumerable<TreeEntry<TKey, TValue>> PostOrderReverse() => PostOrder().Reverse();
+    public IEnumerable<TreeEntry<TKey, TValue>> InOrder() => new TreeIterator(Root, TraversalStrategy.InOrder);
+    public IEnumerable<TreeEntry<TKey, TValue>> PreOrder() => new TreeIterator(Root, TraversalStrategy.PreOrder);
+    public IEnumerable<TreeEntry<TKey, TValue>> PostOrder() => new TreeIterator(Root, TraversalStrategy.PostOrder);
+    public IEnumerable<TreeEntry<TKey, TValue>> InOrderReverse() => new TreeIterator(Root, TraversalStrategy.InOrderReverse);
+    public IEnumerable<TreeEntry<TKey, TValue>> PreOrderReverse() => new TreeIterator(Root, TraversalStrategy.PreOrderReverse);
+    public IEnumerable<TreeEntry<TKey, TValue>> PostOrderReverse() => new TreeIterator(Root, TraversalStrategy.PostOrderReverse);
 
     /// <summary>
     /// Внутренний класс-итератор. 
@@ -324,121 +288,202 @@ public abstract class BinarySearchTreeBase<TKey, TValue, TNode>(IComparer<TKey>?
         IEnumerator<TreeEntry<TKey, TValue>>
     {
         private readonly TNode? _root;
-        private readonly TraversalStrategy _strategy; // or make it template parameter?
-        private List<TreeEntry<TKey, TValue>>? _entries;
-        private int _index;
+        private readonly TraversalStrategy _strategy;
+        private Stack<TraversalFrame>? _stack;
+        private bool _initialized;
+        private bool _hasCurrent;
         private TreeEntry<TKey, TValue> _current;
 
         public TreeIterator(TNode? root, TraversalStrategy strategy)
         {
             _root = root;
             _strategy = strategy;
-            _entries = null;
-            _index = -1;
+            _stack = null;
+            _initialized = false;
+            _hasCurrent = false;
             _current = default;
         }
 
         public IEnumerator<TreeEntry<TKey, TValue>> GetEnumerator() => new TreeIterator(_root, _strategy);
         IEnumerator IEnumerable.GetEnumerator() => new TreeIterator(_root, _strategy);
 
-        public TreeEntry<TKey, TValue> Current => _current;
-        object IEnumerator.Current => _current;
+        public TreeEntry<TKey, TValue> Current
+        {
+            get
+            {
+                if (!_hasCurrent)
+                {
+                    throw new InvalidOperationException("Enumerator is not positioned on a valid element.");
+                }
+
+                return _current;
+            }
+        }
+
+        object IEnumerator.Current => Current;
 
 
         public bool MoveNext()
         {
-            EnsureEntries();
-            if (_entries == null) { return false; }
-            if (_index + 1 >= _entries.Count) { return false; }
-            _index++;
-            _current = _entries[_index];
-            return true;
+            EnsureInitialized();
+            if (_stack == null) { return false; }
+
+            _hasCurrent = false;
+            while (_stack.Count > 0)
+            {
+                TraversalFrame frame = _stack.Pop();
+                switch (_strategy)
+                {
+                    case TraversalStrategy.InOrder:
+                        if (TryMoveInOrder(frame)) { return true; }
+                        break;
+                    case TraversalStrategy.PreOrder:
+                        if (TryMovePreOrder(frame)) { return true; }
+                        break;
+                    case TraversalStrategy.PostOrder:
+                        if (TryMovePostOrder(frame)) { return true; }
+                        break;
+                    case TraversalStrategy.InOrderReverse:
+                        if (TryMoveInOrderReverse(frame)) { return true; }
+                        break;
+                    case TraversalStrategy.PreOrderReverse:
+                        if (TryMovePreOrderReverse(frame)) { return true; }
+                        break;
+                    case TraversalStrategy.PostOrderReverse:
+                        if (TryMovePostOrderReverse(frame)) { return true; }
+                        break;
+                }
+            }
+
+            _current = default;
+            return false;
         }
 
         public void Reset()
         {
-            _index = -1;
+            _stack = null;
+            _initialized = false;
+            _hasCurrent = false;
             _current = default;
         }
 
 
-        public void Dispose()
+        public void Dispose() { }
+
+        private void EnsureInitialized()
         {
-            // TODO release managed resources here
+            if (_initialized) { return; }
+            _initialized = true;
+            _stack = [];
+            Push(_root, 0);
         }
 
-        private void EnsureEntries()
+        private void Push(TNode? node, byte state)
         {
-            if (_entries != null) { return; }
-
-            _entries = [];
-            if (_strategy == TraversalStrategy.InOrder){
-                CollectInOrder(_root, 0, _entries);
-            }
-            else if (_strategy == TraversalStrategy.PreOrder){
-                CollectPreOrder(_root, 0, _entries);
-            }
-            else if (_strategy == TraversalStrategy.PostOrder){
-                CollectPostOrder(_root, 0, _entries);
-            }
-            else if (_strategy == TraversalStrategy.InOrderReverse){
-                CollectInOrderReverse(_root, 0, _entries);
-            }
-            else if (_strategy == TraversalStrategy.PreOrderReverse){
-                CollectPreOrderReverse(_root, 0, _entries);
-            }
-            else if (_strategy == TraversalStrategy.PostOrderReverse){
-                CollectPostOrderReverse(_root, 0, _entries);
+            if (node != null)
+            {
+                _stack!.Push(new TraversalFrame(node, state));
             }
         }
 
-        private static void CollectInOrder(TNode? node, int depth, List<TreeEntry<TKey, TValue>> result)
+        private void SetCurrent(TNode node)
         {
-            if (node == null) { return; }
-            CollectInOrder(node.Left, depth + 1, result);
-            result.Add(new TreeEntry<TKey, TValue>(node.Key, node.Value, depth));
-            CollectInOrder(node.Right, depth + 1, result);
+            _current = new TreeEntry<TKey, TValue>(node.Key, node.Value, GetSubtreeHeight(node));
+            _hasCurrent = true;
         }
 
-        private static void CollectPreOrder(TNode? node, int depth, List<TreeEntry<TKey, TValue>> result)
+        private static int GetSubtreeHeight(TNode? node)
         {
-            if (node == null) { return; }
-            result.Add(new TreeEntry<TKey, TValue>(node.Key, node.Value, depth));
-            CollectPreOrder(node.Left, depth + 1, result);
-            CollectPreOrder(node.Right, depth + 1, result);
+            if (node == null) { return 0; }
+
+            int leftHeight = GetSubtreeHeight(node.Left);
+            int rightHeight = GetSubtreeHeight(node.Right);
+            return 1 + Math.Max(leftHeight, rightHeight);
         }
 
-        private static void CollectPostOrder(TNode? node, int depth, List<TreeEntry<TKey, TValue>> result)
+        private bool TryMoveInOrder(TraversalFrame frame)
         {
-            if (node == null) { return; }
-            CollectPostOrder(node.Left, depth + 1, result);
-            CollectPostOrder(node.Right, depth + 1, result);
-            result.Add(new TreeEntry<TKey, TValue>(node.Key, node.Value, depth));
+            if (frame.State == 0)
+            {
+                Push(frame.Node.Right, 0);
+                Push(frame.Node, 1);
+                Push(frame.Node.Left, 0);
+                return false;
+            }
+
+            SetCurrent(frame.Node);
+            return true;
         }
 
-        private static void CollectInOrderReverse(TNode? node, int depth, List<TreeEntry<TKey, TValue>> result)
+        private bool TryMovePreOrder(TraversalFrame frame)
         {
-            if (node == null) { return; }
-            CollectInOrderReverse(node.Right, depth + 1, result);
-            result.Add(new TreeEntry<TKey, TValue>(node.Key, node.Value, depth));
-            CollectInOrderReverse(node.Left, depth + 1, result);
+            if (frame.State == 0)
+            {
+                Push(frame.Node.Right, 0);
+                Push(frame.Node.Left, 0);
+                SetCurrent(frame.Node);
+                return true;
+            }
+
+            return false;
         }
 
-        private static void CollectPreOrderReverse(TNode? node, int depth, List<TreeEntry<TKey, TValue>> result)
+        private bool TryMovePostOrder(TraversalFrame frame)
         {
-            if (node == null) { return; }
-            result.Add(new TreeEntry<TKey, TValue>(node.Key, node.Value, depth));
-            CollectPreOrderReverse(node.Right, depth + 1, result);
-            CollectPreOrderReverse(node.Left, depth + 1, result);
+            if (frame.State == 0)
+            {
+                Push(frame.Node, 1);
+                Push(frame.Node.Right, 0);
+                Push(frame.Node.Left, 0);
+                return false;
+            }
+
+            SetCurrent(frame.Node);
+            return true;
         }
 
-        private static void CollectPostOrderReverse(TNode? node, int depth, List<TreeEntry<TKey, TValue>> result)
+        private bool TryMoveInOrderReverse(TraversalFrame frame)
         {
-            if (node == null) { return; }
-            CollectPostOrderReverse(node.Right, depth + 1, result);
-            CollectPostOrderReverse(node.Left, depth + 1, result);
-            result.Add(new TreeEntry<TKey, TValue>(node.Key, node.Value, depth));
+            if (frame.State == 0)
+            {
+                Push(frame.Node.Left, 0);
+                Push(frame.Node, 1);
+                Push(frame.Node.Right, 0);
+                return false;
+            }
+
+            SetCurrent(frame.Node);
+            return true;
         }
+
+        private bool TryMovePreOrderReverse(TraversalFrame frame)
+        {
+            if (frame.State == 0)
+            {
+                Push(frame.Node.Left, 0);
+                Push(frame.Node.Right, 0);
+                SetCurrent(frame.Node);
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool TryMovePostOrderReverse(TraversalFrame frame)
+        {
+            if (frame.State == 0)
+            {
+                Push(frame.Node, 1);
+                Push(frame.Node.Left, 0);
+                Push(frame.Node.Right, 0);
+                return false;
+            }
+
+            SetCurrent(frame.Node);
+            return true;
+        }
+
+        private readonly record struct TraversalFrame(TNode Node, byte State);
     }
 
 
